@@ -4,6 +4,8 @@ local find = string.find
 local length = string.len
 
 -- Types
+export type MapFn<O, U> = (O) -> U
+export type ConvertFn<O, U> = (O) -> U
 export type ParserFn<I, O> = (input: {I}, start: cursor) -> (O, cursor)
 export type Parser<I, O> = {
     fn: ParserFn<I, O>,
@@ -12,12 +14,42 @@ export type Parser<I, O> = {
     discard: (Parser<I, O>) -> Parser<I, O>,
     optional: (Parser<I, O>) -> Parser<I, O>,
     rep: (Parser<I, O>, min_: number, max_: number?) -> Parser<I, O>,
+
+    map: (Parser<I, O>) -> Parser<I, O>,
+    convert: (Parser<I, O>) -> Parser<I, O>,
 }
 export type char = string
 export type cursor = number
 export type CharStream = {
 
 }
+
+-- NullObject
+local function NULL()
+    return setmetatable({t="null"}, {
+        __tostring = function()
+            return "null"
+        end,
+        __concat = function()
+            return ""
+        end,
+        __eq = function(y)
+            return y == nil
+        end
+    })
+end
+local function IS_NULL(x)
+    return typeof(x) == "table" and x.t == "null"
+end
+
+-- Functional
+local function map<T, V>(t: {T}, fn: (T) -> V): {V}
+    local mapped: {V} = {}
+    for k,v in pairs(t) do
+        mapped[k] = fn(v)
+    end
+    return mapped
+end
 
 -- Wrappers
 function _create_stream_of_chars(input: string): CharStream
@@ -44,22 +76,49 @@ function _create_parser<I, O>(fn: ParserFn<I, O>): Parser<I, O>
     function parser_meta:__index(key)
         return rawget(self, key)
     end
-    -- function parser_meta:__add(another_parser)
-    --     local combined_parser = _create_parser()
-    --     return combined_parser
-    -- end
-    -- function parser_meta:__sub(another_parser)
-    --     local combined_parser = _create_parser()
-    --     return combined_parser
-    -- end
-    -- function parser_meta:__mul(another_parser)
-    --     local combined_parser = _create_parser()
-    --     return combined_parser
-    -- end
-    -- function parser_meta:__div(another_parser)
-    --     local combined_parser = _create_parser()
-    --     return combined_parser
-    -- end
+    function parser_meta:__add(another_parser)
+        return _create_parser(function(input, start)
+            local left, left_pos = self.fn(input, start)
+            if left then
+                local right, right_pos = another_parser.fn(input, left_pos)
+                return {left, right}, right_pos
+            end
+            error("Invalid")
+        end)
+    end
+    function parser_meta:__sub(another_parser)
+        return _create_parser(function(input, start)
+            local left, left_pos = self.fn(input, start)
+            if left then
+                local _, right_pos = another_parser.fn(input, left_pos)
+                return {left}, right_pos
+            end
+            error("Invalid")
+        end)
+    end
+    function parser_meta:__mul(another_parser)
+        return _create_parser(function(input, start)
+            local left, left_pos = self.fn(input, start)
+            if left then
+                local right, right_pos = another_parser.fn(input, left_pos)
+                return {right}, right_pos
+            end
+            error("Invalid")
+        end)
+    end
+    function parser_meta:__div(another_parser)
+        return _create_parser(function(input, start)
+            local success, left, left_pos = pcall(function() return self.fn(input, start) end)
+            if success then
+                return {left}, left_pos 
+            end
+            local success, right, right_pos = pcall(function() return another_parser.fn(input, start) end)
+            if success then
+                return {right}, right_pos 
+            end
+            error("Invalid")
+        end)
+    end
     -- function parser_meta:__pow(another_parser)
     --     local combined_parser = _create_parser()
     --     return combined_parser
@@ -69,7 +128,7 @@ function _create_parser<I, O>(fn: ParserFn<I, O>): Parser<I, O>
 
     function parser:parse(input)
         local output, _ = self.fn(_create_stream_of_chars(input), 1)
-        return output
+        return output or NULL(), NULL()
     end
 
     function parser:parse_at(input, at: cursor)
@@ -79,7 +138,7 @@ function _create_parser<I, O>(fn: ParserFn<I, O>): Parser<I, O>
     function parser:discard()
         return _create_parser(function(input, start)
             local _, end_ = self.fn(input, start)
-            return end_
+            return NULL(), end_ or NULL()
         end)
     end
 
@@ -120,6 +179,20 @@ function _create_parser<I, O>(fn: ParserFn<I, O>): Parser<I, O>
             assert(length(buf) >= min_, `Expected at least {min_} but got {length(buf)}`)
 
             return buf, pos
+        end)
+    end
+
+    function parser:map<O, U>(mapFn: MapFn<O, U>)
+        return _create_parser(function(input, start)
+            local result, new_pos = self.fn(input, start)
+            return map(result, mapFn), new_pos
+        end)
+    end
+
+    function parser:convert<O, U>(convertFn: ConvertFn<O, U>)
+        return _create_parser(function(input, start)
+            local result, new_pos = self.fn(input, start)
+            return {convertFn(result)}, new_pos
         end)
     end
 
@@ -174,6 +247,23 @@ function seq<I>(sequence: string): Parser<I, I>
     end)
 end
 
+function is_a<I>(predication: (I) -> boolean): Parser<I, I>
+    return _create_parser(function(input, start)
+        local buf = ""
+        local pos = start
+        while true do
+            local c = input.get(pos)
+            if c and predication(c) then
+                buf ..= c
+                pos += 1
+            else
+                break
+            end
+        end
+        return buf, pos
+    end)
+end
+
 return {
     parser = _create_parser,
     empty = empty,
@@ -181,4 +271,5 @@ return {
     any = any,
     sym = sym,
     seq = seq,
+    is_a = is_a,
 }
