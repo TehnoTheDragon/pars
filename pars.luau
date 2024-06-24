@@ -8,6 +8,10 @@ local slen = string.len
 
 -- Debug
 local function __debug_print(obj: any, first_depth: number?)
+    if obj == nil then
+        return "nil"
+    end
+
     local result = ""
     local function __debug_print_table(t, depth)
         local indent = string.rep(" ", depth)
@@ -72,7 +76,8 @@ export type Parser<Out> = typeof(setmetatable({} :: {
 }))
 export type StringStream = {
     str: () -> string,
-    get: (index: number) -> Optional<string>
+    len: () -> number,
+    get: (index: number) -> Optional<string>,
 }
 
 -- Result
@@ -103,12 +108,16 @@ none = function<T>(): Optional<T>
 end
 
 -- StringStream
-string_stream = function(str: string)
+string_stream = function(str: string): StringStream
     local strlen = slen(str)
     local string_stream = {}
 
     function string_stream.str()
         return str
+    end
+
+    function string_stream.len()
+        return strlen
     end
 
     function string_stream.get(index: number)
@@ -118,7 +127,7 @@ string_stream = function(str: string)
         return some(ssub(str, index, index))
     end
 
-    return string_stream :: StringStream
+    return string_stream
 end
 
 -- Union Object
@@ -198,7 +207,13 @@ end
 -- Parsers
 local function char<Out>(charset: string): Parser<Out>
     return parser(function(input: StringStream, cursor: number)
-        return ok(union())
+        local c = input.get(cursor)
+        if c == nil then
+            if cursor > input.len() then
+                return err("End of Input")
+            end
+            return err("Invalid State")
+        end
     end)
 end
 
