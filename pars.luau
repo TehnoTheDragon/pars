@@ -2,8 +2,12 @@
 --!native
 --!strict
 
+-- Fast Access
+local ssub = string.sub
+local slen = string.len
+
 -- Debug
-local function __debug_print(obj: any, first_depth)
+local function __debug_print(obj: any, first_depth: number?)
     local result = ""
     local function __debug_print_table(t, depth)
         local indent = string.rep(" ", depth)
@@ -23,8 +27,10 @@ local function __debug_print(obj: any, first_depth)
 end
 
 -- Declarations
-local null
-local union
+local null: () -> Null
+local union: <Types...>(Types...) -> Union<Types...>
+local parser: <Out>(fn: ParserFn<Out>) -> Parser
+local string_stream: (string) -> StringStream
 
 -- Types
 export type Null = typeof(setmetatable({} :: {
@@ -34,12 +40,49 @@ export type Null = typeof(setmetatable({} :: {
     __concat: (Null) -> string,
     __eq: (Null, any) -> boolean,
 }))
-export type Some<T> = T
-export type None = Null
+export type Some<T> = {value: T, type: "some"}
+export type None = {value: Null, type: "none"}
 export type Optional<T> = Some<T> | None
 export type Union<Types...> = {
     get: <T>(index: any) -> Optional<T>
 }
+export type ParserFn<Out> = (input: string, cursor: number) -> (Union<Out>, number)
+export type Parser = typeof(setmetatable({} :: {
+
+}, {} :: {
+
+}))
+export type StringStream = {
+    str: () -> string,
+    get: (index: number) -> Optional<string>
+}
+
+-- Optional
+local function some<T>(value: T): Optional<T>
+    return {value = value, type = "some"} :: Optional<T>
+end
+local function none<T>(): Optional<T>
+    return {value = null(), type = "none"} :: Optional<T>
+end
+
+-- StringStream
+string_stream = function(str: string)
+    local strlen = slen(str)
+    local string_stream = {}
+
+    function string_stream.str()
+        return str
+    end
+
+    function string_stream.get(index: number)
+        if index < 0 or index > strlen then
+            return none()
+        end
+        return some(ssub(str, index, index))
+    end
+
+    return string_stream :: StringStream
+end
 
 -- Union Object
 union = function<Types...>(...: Types...): Union<Types...>
@@ -86,12 +129,24 @@ local function filter<InputType, KeyType>(x: {InputType}, fn: (value: InputType,
     return y
 end
 
+-- Parser
+parser = function<Out>(fn: ParserFn<Out>): Parser
+    local parser_meta = {}
+    local parser = {}
+
+    return setmetatable(parser_meta, parser) :: Parser
+end
+
 return {
     internal = {
         dbg = __debug_print,
+        string_stream = string_stream,
+        some = some,
+        none = none,
         union = union,
         null = null,
         map = map,
         filter = filter,
-    }
+    },
+    parser = parser,
 }
