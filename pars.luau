@@ -5,6 +5,7 @@
 -- Fast Access
 local ssub = string.sub
 local slen = string.len
+local sfind = string.find
 
 -- Debug
 local function __debug_print(obj: any, first_depth: number?)
@@ -59,9 +60,10 @@ export type None = {value: Null, type: "none"}
 export type Optional<T> = Some<T> | None
 export type Union<Types...> = {
     data: {any},
-    get: <T>(index: any) -> Optional<T>
+    get: <T>(index: any) -> Optional<T>,
+    unpack: () -> ...any
 }
-export type ParserFnOutput<Out> = Union<Union<Out>, number>
+export type ParserFnOutput<Out> = Union<Out, number>
 export type ParserFn<Out> = (input: StringStream, cursor: number) -> Result<ParserFnOutput<Out>, any>
 export type Parser<Out> = typeof(setmetatable({} :: {
     fn: ParserFn<Out>,
@@ -121,7 +123,7 @@ string_stream = function(str: string): StringStream
     end
 
     function string_stream.get(index: number)
-        if index < 0 or index > strlen then
+        if index <= 0 or index > strlen then
             return none()
         end
         return some(ssub(str, index, index))
@@ -131,8 +133,8 @@ string_stream = function(str: string): StringStream
 end
 
 -- Union Object
-union = function<Types...>(...: Types...): Union<Types...>
-    local _union = table.pack(...)
+union = function<Types...>(...: any): Union<Types...>
+    local _union = {...}
     local union: Union<Types...> = {data = _union} :: Union<Types...>
     function union:get<T>(index: any): Optional<T>
         local value = _union[index] :: any
@@ -182,7 +184,7 @@ parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     parser.fn = fn
 
     function parser:parse(input: string): Result<ParserFnOutput<Out>, any>
-        return self.fn(string_stream(input), 0)
+        return self.fn(string_stream(input), 1)
     end
 
     function parser:optional()
@@ -204,16 +206,31 @@ parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     return (setmetatable((parser :: any) :: {}, parser_meta) :: any) :: Parser<Out>
 end
 
+-- QoL
+local function check_char(input: StringStream, cursor: number): Result<Null, string>
+    if input.get(cursor) == nil then
+        if cursor > input.len() then
+            return err("End of Input")
+        end
+        return err("Invalid State")
+    end
+    return ok(null())
+end
+
 -- Parsers
 local function char<Out>(charset: string): Parser<Out>
     return parser(function(input: StringStream, cursor: number)
-        local c = input.get(cursor)
-        if c == nil then
-            if cursor > input.len() then
-                return err("End of Input")
-            end
-            return err("Invalid State")
+        local check = check_char(input, cursor)
+        if check.type == "err" then
+            return check
         end
+
+        local char = input.get(cursor).value :: string
+        if not sfind(charset, char) then
+            return err(`Expected one of the chars "{charset}", found {char}`)
+        end
+        
+        return ok(union(char, cursor + 1))
     end)
 end
 
