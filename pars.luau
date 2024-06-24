@@ -56,10 +56,11 @@ export type Optional<T> = Some<T> | None
 export type Union<Types...> = {
     get: <T>(index: any) -> Optional<T>
 }
-export type ParserFn<Out> = (input: string, cursor: number) -> (Union<Out>, number)
+export type ParserFnOutput<Out> = Union<Union<Out>, number>
+export type ParserFn<Out> = (input: StringStream, cursor: number) -> Result<ParserFnOutput<Out>, any>
 export type Parser<Out> = typeof(setmetatable({} :: {
     fn: ParserFn<Out>,
-    parse: (self: Parser<Out>, input: string) -> (Union<Out>, number),
+    parse: (self: Parser<Out>, input: string) -> Result<ParserFnOutput<Out>, any>,
 
     optional: (Parser<Out>) -> Parser<Out>,
     discard: (Parser<Out>) -> Parser<Out>,
@@ -170,8 +171,8 @@ parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     local parser = ({} :: any) :: Parser<Out>
     parser.fn = fn
 
-    function parser:parse(input: string): (Union<Out>, number)
-        return self.fn(input, 0)
+    function parser:parse(input: string): Result<ParserFnOutput<Out>, any>
+        return self.fn(string_stream(input), 0)
     end
 
     function parser:optional()
@@ -195,8 +196,8 @@ end
 
 -- Parsers
 local function char<Out>(charset: string): Parser<Out>
-    return parser(function(input: string, cursor: number)
-
+    return parser(function(input: StringStream, cursor: number)
+        return ok(union())
     end)
 end
 
