@@ -31,8 +31,18 @@ local null: () -> Null
 local union: <Types...>(Types...) -> Union<Types...>
 local parser: <Out>(fn: ParserFn<Out>) -> Parser<Out>
 local string_stream: (string) -> StringStream
+local range: (min: number, max: number) -> Range
+local unimplemented: () -> ()
+local ok: <T>(value: T) -> Ok<T>
+local err: <T>(err: T) -> Err<T>
+local some: <T>(value: T) -> Optional<T>
+local none: <T>() -> Optional<T>
 
 -- Types
+export type Range = {min: number, max: number}
+export type Ok<T> = {value: T, type: "ok"}
+export type Err<T> = {err: T, type: "err"}
+export type Result<T, E> = Ok<T> | Err<E>
 export type Null = typeof(setmetatable({} :: {
     eq: (Null, any) -> boolean,
 }, {} :: {
@@ -50,6 +60,11 @@ export type ParserFn<Out> = (input: string, cursor: number) -> (Union<Out>, numb
 export type Parser<Out> = typeof(setmetatable({} :: {
     fn: ParserFn<Out>,
     parse: (self: Parser<Out>, input: string) -> (Union<Out>, number),
+
+    optional: (Parser<Out>) -> Parser<Out>,
+    discard: (Parser<Out>) -> Parser<Out>,
+    range: (Parser<Out>, range: Range) -> Parser<Out>,
+    label: (Parser<Out>, label: string) -> Parser<Out>,
 }, {} :: {
 
 }))
@@ -58,11 +73,30 @@ export type StringStream = {
     get: (index: number) -> Optional<string>
 }
 
+-- Result
+ok = function<T>(value: T): Ok<T>
+    return { value = value, type = "ok" }
+end
+err = function<E>(err: E): Err<E>
+    return { err = err, type = "err" }
+end
+
+-- Unimplemented
+unimplemented = function()
+    error(`Unimplemented`, 3)
+end
+
+-- Range
+range = function(min: number, max: number): Range
+    assert(max > min, `Max({max}) value must be larger than Min({min}) value`)
+    return { min = min, max = max } :: Range
+end
+
 -- Optional
-local function some<T>(value: T): Optional<T>
+some = function<T>(value: T): Optional<T>
     return {value = value, type = "some"} :: Optional<T>
 end
-local function none<T>(): Optional<T>
+none = function<T>(): Optional<T>
     return {value = null(), type = "none"} :: Optional<T>
 end
 
@@ -140,15 +174,40 @@ parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
         return self.fn(input, 0)
     end
 
-    return (setmetatable(parser_meta, parser) :: any) :: Parser<Out>
+    function parser:optional()
+        unimplemented()
+    end
+
+    function parser:discard()
+        unimplemented()
+    end
+
+    function parser:range(range: Range)
+        unimplemented()
+    end
+
+    function parser:label(label: string)
+        unimplemented()
+    end
+
+    return (setmetatable((parser :: any) :: {}, parser_meta) :: any) :: Parser<Out>
 end
 
 -- Parsers
+local function char<Out>(charset: string): Parser<Out>
+    return parser(function(input: string, cursor: number)
+
+    end)
+end
 
 return {
     internal = {
         dbg = __debug_print,
         string_stream = string_stream,
+        unimplemented = unimplemented,
+        range = range,
+        ok = ok,
+        err = err,
         some = some,
         none = none,
         union = union,
@@ -157,7 +216,7 @@ return {
         filter = filter,
     },
     parsers = {
-
+        char = char,
     },
     parser = parser,
 }
