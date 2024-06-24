@@ -29,7 +29,7 @@ end
 -- Declarations
 local null: () -> Null
 local union: <Types...>(Types...) -> Union<Types...>
-local parser: <Out>(fn: ParserFn<Out>) -> Parser
+local parser: <Out>(fn: ParserFn<Out>) -> Parser<Out>
 local string_stream: (string) -> StringStream
 
 -- Types
@@ -47,8 +47,9 @@ export type Union<Types...> = {
     get: <T>(index: any) -> Optional<T>
 }
 export type ParserFn<Out> = (input: string, cursor: number) -> (Union<Out>, number)
-export type Parser = typeof(setmetatable({} :: {
-
+export type Parser<Out> = typeof(setmetatable({} :: {
+    fn: ParserFn<Out>,
+    parse: (self: Parser<Out>, input: string) -> (Union<Out>, number),
 }, {} :: {
 
 }))
@@ -130,12 +131,19 @@ local function filter<InputType, KeyType>(x: {InputType}, fn: (value: InputType,
 end
 
 -- Parser
-parser = function<Out>(fn: ParserFn<Out>): Parser
+parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     local parser_meta = {}
-    local parser = {}
+    local parser = ({} :: any) :: Parser<Out>
+    parser.fn = fn
 
-    return setmetatable(parser_meta, parser) :: Parser
+    function parser:parse(input: string): (Union<Out>, number)
+        return self.fn(input, 0)
+    end
+
+    return (setmetatable(parser_meta, parser) :: any) :: Parser<Out>
 end
+
+-- Parsers
 
 return {
     internal = {
@@ -147,6 +155,9 @@ return {
         null = null,
         map = map,
         filter = filter,
+    },
+    parsers = {
+
     },
     parser = parser,
 }
