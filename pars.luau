@@ -8,9 +8,13 @@ local slen = string.len
 local sfind = string.find
 
 -- Debug
-local function __debug_print(obj: any, first_depth: number?)
+local function dbg(obj: any, first_depth: number?)
     if obj == nil then
-        return print("nil")
+        print("nil")
+        return
+    elseif typeof(obj) == "string" then
+        print(obj)
+        return
     end
 
     local result = ""
@@ -34,9 +38,9 @@ end
 -- Declarations
 local null: () -> Null
 local union: <Types...>(Types...) -> Union<Types...>
-local parser: <Out>(fn: ParserFn<Out>) -> Parser<Out>
+local create_parser: <Out>(fn: ParserFn<Out>) -> Parser<Out>
 local string_stream: (string) -> StringStream
-local range: (min: number, max: number) -> Range
+local range: (min: number, max: number?) -> Range
 local unimplemented: () -> ()
 local ok: <T>(value: T) -> Ok<T>
 local err: <T>(err: T) -> Err<T>
@@ -96,9 +100,11 @@ unimplemented = function()
 end
 
 -- Range
-range = function(min: number, max: number): Range
-    assert(max > min, `Max({max}) value must be larger than Min({min}) value`)
-    return { min = min, max = max } :: Range
+range = function(min: number, max: number?): Range
+    if max then
+        assert(max > min, `Max({max}) value must be larger than Min({min}) value`)
+    end
+    return { min = min, max = max or math.huge } :: Range
 end
 
 -- Optional
@@ -136,9 +142,12 @@ end
 union = function<Types...>(...: any): Union<Types...>
     local _union = {...}
     local union: Union<Types...> = {data = _union} :: Union<Types...>
-    function union:get<T>(index: any): Optional<T>
+    function union.get<T>(index: any): Optional<T>
         local value = _union[index] :: any
         return if value == nil then null() else value
+    end
+    function union.unpack()
+        return unpack(_union)
     end
     return union
 end
@@ -178,7 +187,7 @@ local function filter<InputType, KeyType>(x: {InputType}, fn: (value: InputType,
 end
 
 -- Parser
-parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
+create_parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     local parser_meta = {}
     local parser = ({} :: any) :: Parser<Out>
     parser.fn = fn
@@ -196,7 +205,25 @@ parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     end
 
     function parser:range(range: Range)
-        unimplemented()
+        return create_parser(function(input: StringStream, cursor: number)
+            local buf = ""
+            local pos = cursor
+            while true do
+                if pos > range.max then
+                    break
+                end
+
+                local result = self.fn(input, pos)
+                if result.type == "ok" then
+                    buf ..= result.value.get(1)
+                    pos = result.value.get(2)
+                else
+                    break
+                end
+            end
+
+            return ok(union(buf, pos))
+        end)
     end
 
     function parser:label(label: string)
@@ -219,13 +246,14 @@ end
 
 -- Parsers
 local function char<Out>(charset: string): Parser<Out>
-    return parser(function(input: StringStream, cursor: number)
+    return create_parser(function(input: StringStream, cursor: number)
         local check = check_char(input, cursor)
         if check.type == "err" then
             return check
         end
 
         local char = input.get(cursor).value :: string
+        dbg(char)
         if not sfind(charset, char) then
             return err(`Expected one of the chars "{charset}", found {char}`)
         end
@@ -236,10 +264,9 @@ end
 
 return {
     internal = {
-        dbg = __debug_print,
+        dbg = dbg,
         string_stream = string_stream,
         unimplemented = unimplemented,
-        range = range,
         ok = ok,
         err = err,
         some = some,
@@ -252,5 +279,6 @@ return {
     parsers = {
         char = char,
     },
-    parser = parser,
+    range = range,
+    parser = create_parser,
 }
