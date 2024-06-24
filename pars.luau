@@ -144,7 +144,7 @@ union = function<Types...>(...: any): Union<Types...>
     local union: Union<Types...> = {data = _union} :: Union<Types...>
     function union.get<T>(index: any): Optional<T>
         local value = _union[index] :: any
-        return if value == nil then null() else value
+        return if value == nil then none() else some(value)
     end
     function union.unpack()
         return unpack(_union)
@@ -215,11 +215,15 @@ create_parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
 
                 local result = self.fn(input, pos)
                 if result.type == "ok" then
-                    buf ..= result.value.get(1)
-                    pos = result.value.get(2)
+                    buf ..= result.value.get(1).value :: string
+                    pos = result.value.get(2).value :: number
                 else
                     break
                 end
+            end
+
+            if slen(buf) < range.min then
+                return err(`Expected at least {range.min} got {slen(buf)}`)
             end
 
             return ok(union(buf, pos))
@@ -236,10 +240,9 @@ end
 -- QoL
 local function check_char(input: StringStream, cursor: number): Result<Null, string>
     if input.get(cursor) == nil then
-        if cursor > input.len() then
-            return err("End of Input")
-        end
         return err("Invalid State")
+    elseif cursor > input.len() then
+        return err("End of Input")
     end
     return ok(null())
 end
@@ -253,7 +256,6 @@ local function char<Out>(charset: string): Parser<Out>
         end
 
         local char = input.get(cursor).value :: string
-        dbg(char)
         if not sfind(charset, char) then
             return err(`Expected one of the chars "{charset}", found {char}`)
         end
