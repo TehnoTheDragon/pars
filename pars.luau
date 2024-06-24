@@ -197,11 +197,23 @@ create_parser = function<Out>(fn: ParserFn<Out>): Parser<Out>
     end
 
     function parser:optional()
-        unimplemented()
+        return create_parser(function(input: StringStream, cursor: number)
+            local result = self.fn(input, cursor)
+            if result.type == "err" then
+                return ok(union(null(), cursor))
+            end
+            return result
+        end)
     end
 
     function parser:discard()
-        unimplemented()
+        return create_parser(function(input: StringStream, cursor: number)
+            local result = self.fn(input, cursor)
+            if result.type == "err" then
+                return result
+            end
+            return ok(union(null(), result.value.get(2).value))
+        end)
     end
 
     function parser:range(range: Range)
@@ -257,9 +269,77 @@ local function char<Out>(charset: string): Parser<Out>
 
         local char = input.get(cursor).value :: string
         if not sfind(charset, char) then
-            return err(`Expected one of the chars "{charset}", found {char}`)
+            return err(`Expected one of the chars "{charset}", found '{char}'`)
         end
         
+        return ok(union(char, cursor + 1))
+    end)
+end
+
+local function empty<Out>(): Parser<Out>
+    return create_parser(function(input: StringStream, cursor: number)
+        return ok(union(null(), cursor))
+    end)
+end
+
+local function eol<Out>(): Parser<Out>
+    return create_parser(function(input: StringStream, cursor: number)
+        local check = check_char(input, cursor)
+        if check.type == "ok" then
+            return err(`Expected end of input, found {input.get(cursor).value}`)
+        end
+        return ok(union(null(), cursor))
+    end)
+end
+
+local function any<Out>(): Parser<Out>
+    return create_parser(function(input: StringStream, cursor: number)
+        local check = check_char(input, cursor)
+        if check.type == "err" then
+            return check
+        end
+
+        local char = input.get(cursor).value :: string
+        return ok(union(char, cursor + 1))
+    end)
+end
+
+local function lit<Out>(literal: string): Parser<Out>
+    local literal_length = slen(literal)
+    return create_parser(function(input: StringStream, cursor: number)
+        local index = 0
+        while true do
+            local pos = cursor + index
+            if index == literal_length then
+                return ok(union(literal, pos))
+            end
+
+            local check = check_char(input, pos)
+            if check.type == "err" then
+                return check
+            end
+
+            local char = input.get(pos).value :: string
+            if ssub(literal, pos, pos) ~= char then
+                return err(`Literal: {literal}, expected '{ssub(literal, pos, pos)}' but got '{char}'`)
+            end
+            index += 1
+        end
+    end)
+end
+
+local function is_a<Out>(predicate: (string) -> boolean): Parser<Out>
+    return create_parser(function(input: StringStream, cursor: number)
+        local check = check_char(input, cursor)
+        if check.type == "err" then
+            return check
+        end
+
+        local char = input.get(cursor).value :: string
+        if not predicate(char) then
+            return err(`'{char}' is not valid`)
+        end
+
         return ok(union(char, cursor + 1))
     end)
 end
@@ -279,7 +359,12 @@ return {
         filter = filter,
     },
     parsers = {
+        empty = empty,
+        eol = eol,
         char = char,
+        any = any,
+        lit = lit,
+        is_a = is_a,
     },
     range = range,
     parser = create_parser,
