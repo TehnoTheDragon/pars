@@ -9,7 +9,7 @@ local slen = string.len
 -- Debug
 local function __debug_print(obj: any, first_depth: number?)
     if obj == nil then
-        return "nil"
+        return print("nil")
     end
 
     local result = ""
