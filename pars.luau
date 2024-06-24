@@ -54,6 +54,7 @@ export type Some<T> = {value: T, type: "some"}
 export type None = {value: Null, type: "none"}
 export type Optional<T> = Some<T> | None
 export type Union<Types...> = {
+    data: {any},
     get: <T>(index: any) -> Optional<T>
 }
 export type ParserFnOutput<Out> = Union<Union<Out>, number>
@@ -123,7 +124,7 @@ end
 -- Union Object
 union = function<Types...>(...: Types...): Union<Types...>
     local _union = table.pack(...)
-    local union: Union<Types...> = {} :: Union<Types...>
+    local union: Union<Types...> = {data = _union} :: Union<Types...>
     function union:get<T>(index: any): Optional<T>
         local value = _union[index] :: any
         return if value == nil then null() else value
